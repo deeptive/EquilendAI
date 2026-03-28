@@ -1,4 +1,3 @@
-```markdown
 #  EquiLend AI: Open Source ML Challenge 2026
 
 ##  The Problem
@@ -15,7 +14,7 @@ As a participant, you are provided with a **Streamlit UI Prototype**. However, t
 
 ---
 
-##  Tech Stack
+## 🛠 Tech Stack
 * **Language:** Python 3.10+
 * **Frontend:** Streamlit
 * **ML Libraries:** Scikit-learn, XGBoost, SHAP (for explainability)
@@ -33,7 +32,7 @@ As a participant, you are provided with a **Streamlit UI Prototype**. However, t
 
 ---
 
-##  Getting Started
+## Getting Started
 
 ### 1. Prerequisites
 Ensure you have Python 3.10 or higher installed. We recommend using a virtual environment:
@@ -43,7 +42,6 @@ python -m venv venv
 .\venv\Scripts\activate
 # On Mac/Linux:
 source venv/bin/activate
-```
 
 ### 2. Install Dependencies
 ```bash
