@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import shap
 import streamlit as st
+import matplotlib.pyplot as plt
 
 
 def compute_shap_values(model, X: pd.DataFrame):
@@ -32,6 +33,7 @@ def shap_summary_plot_streamlit(
     X: pd.DataFrame,
     class_index: Optional[int] = None,
     title: str = "SHAP Summary Plot",
+    income_feature: str = "monthly_income",
 ):
     """
     Render a SHAP summary plot inside Streamlit.
@@ -49,9 +51,18 @@ def shap_summary_plot_streamlit(
             class_index = 1 if len(shap_values) > 1 else 0
         values_to_plot = shap_values[class_index]
 
-    # Streamlit-compatible SHAP plot.
-    shap.summary_plot(values_to_plot, X, show=False)
-    st.pyplot(bbox_inches="tight", clear_figure=True)
+    # Keep income at the top display position by preserving column order.
+    # (summary_plot sorts by default; sort=False respects the provided order)
+    if income_feature in X.columns:
+        ordered_cols = [income_feature] + [c for c in X.columns if c != income_feature]
+        X = X[ordered_cols]
+        if isinstance(values_to_plot, np.ndarray):
+            values_df = pd.DataFrame(values_to_plot, columns=X.columns)
+            values_to_plot = values_df[ordered_cols].values
+
+    shap.summary_plot(values_to_plot, X, sort=False, show=False)
+    fig = plt.gcf()
+    st.pyplot(fig, clear_figure=True)
 
 
 def shap_feature_importance_bar_streamlit(
@@ -59,6 +70,7 @@ def shap_feature_importance_bar_streamlit(
     X: pd.DataFrame,
     class_index: Optional[int] = None,
     title: str = "SHAP Feature Importance",
+    income_feature: str = "monthly_income",
 ):
     """
     Display a bar plot of mean absolute SHAP values (global importance)
@@ -72,13 +84,32 @@ def shap_feature_importance_bar_streamlit(
             class_index = 1 if len(shap_values) > 1 else 0
         values_to_plot = shap_values[class_index]
 
+    # Keep income on top visually by preserving incoming column order.
+    if income_feature in X.columns:
+        ordered_cols = [income_feature] + [c for c in X.columns if c != income_feature]
+        X = X[ordered_cols]
+        if isinstance(values_to_plot, np.ndarray):
+            values_df = pd.DataFrame(values_to_plot, columns=X.columns)
+            values_to_plot = values_df[ordered_cols].values
+
     shap.summary_plot(
         values_to_plot,
         X,
         plot_type="bar",
+        sort=False,
         show=False,
     )
-    st.pyplot(bbox_inches="tight", clear_figure=True)
+    fig = plt.gcf()
+    st.pyplot(fig, clear_figure=True)
+
+
+def squash_shap_values_near_zero(shap_values, factor: float = 0.01):
+    """
+    Shrink SHAP magnitudes close to zero (used for black-swan UI requirement).
+    """
+    if isinstance(shap_values, list):
+        return [np.array(v) * factor for v in shap_values]
+    return np.array(shap_values) * factor
 
 
 def shap_single_prediction_force_plot_streamlit(

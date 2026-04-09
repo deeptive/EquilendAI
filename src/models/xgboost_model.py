@@ -1,6 +1,7 @@
 import os
+import sys
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 
 import joblib
 import numpy as np
@@ -11,8 +12,18 @@ from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_t
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from src.preprocessing.data_cleaning import load_and_clean
-from src.preprocessing.feature_encoding import encode_categorical_features
+# Support both:
+# - `python -m src.models.xgboost_model` (package execution)
+# - `python src/models/xgboost_model.py` (direct script execution)
+try:
+    from src.preprocessing.data_cleaning import load_and_clean
+    from src.preprocessing.feature_encoding import encode_categorical_features
+except ModuleNotFoundError:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    from src.preprocessing.data_cleaning import load_and_clean
+    from src.preprocessing.feature_encoding import encode_categorical_features
 
 
 @dataclass(frozen=True)
@@ -30,6 +41,27 @@ class XGBoostModelArtifact:
     test_auc: float
 
 
+def sanitize_feature_names(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Make feature names compatible with XGBoost restrictions.
+
+    XGBoost disallows feature names containing characters like:
+    - '['
+    - ']'
+    - '<'
+    """
+    sanitized = df.copy()
+    sanitized.columns = (
+        sanitized.columns.astype(str)
+        .str.replace("[", "_", regex=False)
+        .str.replace("]", "_", regex=False)
+        .str.replace("<", "lt_", regex=False)
+        .str.replace(">", "gt_", regex=False)
+        .str.replace(" ", "_", regex=False)
+    )
+    return sanitized
+
+
 def _prepare_training_frame(csv_path: str) -> pd.DataFrame:
     """
     Load the raw CSV and apply the existing preprocessing steps.
@@ -41,6 +73,7 @@ def _prepare_training_frame(csv_path: str) -> pd.DataFrame:
     """
     df = load_and_clean(csv_path)
     df = encode_categorical_features(df)
+    df = sanitize_feature_names(df)
     return df
 
 
@@ -105,9 +138,9 @@ def train_tuned_xgboost_with_smote(
         eval_metric="logloss",
         random_state=random_state,
         n_jobs=-1,
+        verbosity=0,
         # With SMOTE enabled, class weights are less necessary.
         scale_pos_weight=1.0,
-        use_label_encoder=False,
     )
 
     # Hyperparameter tuning space (focused on requested parameters).
@@ -168,6 +201,21 @@ def load_artifact(model_path: str) -> XGBoostModelArtifact:
     """
     Load a previously saved XGBoostModelArtifact.
     """
+    # Backward compatibility:
+    # If the artifact was created while running this file directly
+    # (`python src/models/xgboost_model.py`), pickle may record the class path
+    # as `main.XGBoostModelArtifact`. In Streamlit/runtime contexts, that module
+    # path is different, causing:
+    # "module 'main' has no attribute 'XGBoostModelArtifact'".
+    #
+    # We alias the class onto any loaded `main`/`__main__` modules before loading.
+    main_mod = sys.modules.get("main")
+    if main_mod is not None and not hasattr(main_mod, "XGBoostModelArtifact"):
+        setattr(main_mod, "XGBoostModelArtifact", XGBoostModelArtifact)
+    dunder_main_mod = sys.modules.get("__main__")
+    if dunder_main_mod is not None and not hasattr(dunder_main_mod, "XGBoostModelArtifact"):
+        setattr(dunder_main_mod, "XGBoostModelArtifact", XGBoostModelArtifact)
+
     artifact = joblib.load(model_path)
     if not isinstance(artifact, XGBoostModelArtifact):
         raise TypeError(
@@ -193,6 +241,7 @@ def predict_default_probability(
     """
     user_df = pd.DataFrame([raw_features])
     user_encoded = encode_categorical_features(user_df)
+    user_encoded = sanitize_feature_names(user_encoded)
 
     # Add any missing training-time columns (unseen categories => 0 dummy columns).
     for col in artifact.feature_cols:
@@ -219,9 +268,46 @@ def train_and_save(
     return metrics
 
 
-if __name__ == "__main__":
-    metrics = train_and_save()
-    print("Training complete.")
+def train_xgb_model(
+    csv_path: str = "data/equilend_mock_data.csv",
+    output_path: str = "models/xgboost_model.joblib",
+) -> XGBoostModelArtifact:
+    """
+    Required public API:
+    Train tuned XGBoost model and save artifact to disk.
+    """
+    artifact, metrics = train_tuned_xgboost_with_smote(csv_path)
+    save_artifact(artifact, output_path)
+    print(f"Saved model artifact to: {output_path}")
     print(f"Test AUC: {metrics['test_auc']:.4f}")
     print(f"Best params: {metrics['best_params']}")
+    return artifact
+
+
+def predict_xgb(model: XGBoostModelArtifact, X_new: pd.DataFrame) -> np.ndarray:
+    """
+    Required public API:
+    Predict default probabilities for new samples.
+
+    Args:
+        model: Loaded XGBoostModelArtifact (via `load_artifact` or `train_xgb_model`).
+        X_new: Raw feature dataframe (unencoded/unscaled) with columns from training schema.
+    """
+    # Apply the same one-hot encoding as training.
+    X_encoded = encode_categorical_features(X_new.copy())
+    X_encoded = sanitize_feature_names(X_encoded)
+
+    # Align with training feature columns.
+    for col in model.feature_cols:
+        if col not in X_encoded.columns:
+            X_encoded[col] = 0.0
+    X_encoded = X_encoded[model.feature_cols]
+
+    # Reuse saved scaler and model.
+    X_scaled = model.scaler.transform(X_encoded)
+    return model.model.predict_proba(X_scaled)[:, 1]
+
+
+if __name__ == "__main__":
+    train_xgb_model()
 

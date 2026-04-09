@@ -1,80 +1,95 @@
 ## EquiLend AI – Fairness & Explainability Report
 
-### 1. Overview
+### 1) Final Model Summary
 
-This document summarizes the current state of model performance, fairness analysis, and explainability tooling for the EquiLend AI credit risk models. It focuses primarily on the Random Forest and XGBoost classifiers trained on the synthetic `equilend_mock_data.csv` dataset.
+- **Production model**: XGBoost with SMOTE balancing and hyperparameter tuning.
+- **Training module**: `src/models/xgboost_model.py`
+- **Saved artifact**: `models/xgboost_model.joblib`
+- **Dataset**: `data/equilend_mock_data.csv`
+- **Final test AUC**: **0.8445**
+- **Best parameters**:
+  - `subsample: 0.8`
+  - `n_estimators: 200`
+  - `max_depth: 6`
+  - `learning_rate: 0.1`
 
-### 2. Model Performance (Summary)
+### 2) Preprocessing Pipeline Used
 
-Models are trained using:
+The model uses existing preprocessing modules without breaking prior steps:
 
-- **Data cleaning**: `src/preprocessing/data_cleaning.py` (type coercion, missing value imputation, outlier clipping).
-- **Feature encoding**: `src/preprocessing/feature_encoding.py` (one‑hot encoding of categorical variables).
-- **Scaling**: `src/preprocessing/scaling.py` (numeric scaling for tabular models).
-- **Models**:
-  - Random Forest: `src/models/train_random_forest.py`
-  - XGBoost (with hyperparameter tuning): `src/models/train_xgboost.py`
+- `src/preprocessing/data_cleaning.py`
+  - numeric coercion
+  - missing value handling
+  - outlier clipping
+- `src/preprocessing/feature_encoding.py`
+  - one-hot encoding for categorical features
+- `src/models/xgboost_model.py`
+  - feature-name sanitization for XGBoost compatibility
+  - scaler fit on train split only
 
-Key evaluation metrics (computed in the training scripts and `src/evaluation/model_evaluation.py`):
+### 3) Explainability (SHAP)
 
-- **Accuracy**: overall fraction of correctly classified cases.
-- **ROC AUC**: ability to discriminate between default and non‑default across thresholds.
-- **F1 score**: balance between precision and recall for the default class.
+Implemented in `src/evaluation/shap_analysis.py` and integrated in `src/app.py`.
 
-These metrics are printed to the console during training and can be persisted or logged as needed. XGBoost additionally uses cross‑validated ROC AUC during hyperparameter search (`RandomizedSearchCV` with `StratifiedKFold`) to select the best model.
+- **Global view**: SHAP feature importance bar.
+- **Local view**: SHAP force plot for each user prediction.
+- **UI behavior added**:
+  - “Explain this prediction (SHAP)” in New Application page.
+  - Income prioritized at top ordering in SHAP summary/bar displays.
+  - For black-swan-triggered cases, SHAP contributions are intentionally squashed near zero for safety-mode presentation.
 
-### 3. Fairness Analysis
+### 4) Fairness / Bias Detection
 
-Fairness checks are implemented in `src/evaluation/fairness.py`.
+- Core fairness logic: `src/evaluation/fairness.py`
+- Runner script: `src/evaluation/run_bias_detection.py`
+- Output report: `reports/fairness_report.json`
 
-- **Per‑attribute analysis**: `check_fairness_for_attribute` computes, for each group of a protected attribute (e.g., age band, state):
-  - Predicted positive rate (fraction predicted default = 1).
-  - True positive rate (observed default rate).
-  - Maximum inter‑group differences in these rates.
-- **Multi‑attribute analysis**: `check_model_fairness` runs these checks over:
-  - **Age** (bucketed into `<25`, `25–34`, `35–44`, `45–54`, `55+`).
-  - **State** (categorical field, when present).
-- **Bias flagging**:
-  - If the maximum difference in group‑level predicted or true default rates exceeds a configurable threshold (default **10 percentage points**), the attribute’s `bias_flag` is set to `true`.
-  - An overall `overall_bias_detected` flag is raised if any monitored attribute is flagged.
+Checks performed:
 
-These outputs can be surfaced in dashboards or logs and used to trigger alerts when fairness thresholds are breached.
+- Group-level predicted-positive and observed-positive rates.
+- Age-band and state-group fairness comparisons.
+- Bias flag if max inter-group difference exceeds threshold (`max_diff`, default 0.10).
+- Overall flag: `overall_bias_detected`.
 
-### 4. SHAP Explainability
+### 5) Black-Swan Safety Mitigation
 
-SHAP‑based explainability for tree‑based models is implemented in `src/evaluation/shap_analysis.py` and integrated into the Streamlit app (`src/app.py`):
+Added a **Zero-Trust Black-Swan Guard** in `src/app.py`:
 
-- **Global explanations**:
-  - `shap_feature_importance_bar_streamlit` renders a bar chart of mean absolute SHAP values, highlighting globally important features.
-  - `shap_summary_plot_streamlit` (available for use) shows distributional impacts of each feature across the dataset.
-- **Local (per‑prediction) explanations**:
-  - `shap_single_prediction_force_plot_streamlit` displays a SHAP force plot for an individual prediction, showing how each feature pushed the default risk up or down relative to the baseline.
-- **Streamlit integration**:
-  - In the “New Application” flow, once a prediction is made, an **“Explain this prediction (SHAP)”** expander shows:
-    - A SHAP feature‑importance bar plot for that specific input.
-    - A force plot explaining the individual decision.
+- Force conservative outcome (`High Risk`) for extreme-risk signals.
+- Trigger examples:
+  - `monthly_income <= 0`
+  - `repayment_history_pct <= 5`
+  - `utility_bill_average / monthly_income >= 0.5`
+- Records guard state in decision payload:
+  - `zero_trust_triggered`
+  - `zero_trust_reason`
 
-This combination of global and local views helps auditors and users understand *why* the model produced a given risk score.
+This reduces catastrophic false approvals during out-of-distribution or stress scenarios.
 
-### 5. Bias Mitigation Strategies
+### 6) Streamlit Evidence Available
 
-Current steps taken to reduce bias and support fair decisions include:
+`src/app.py` now shows:
 
-- **Data preprocessing**:
-  - Robust handling of missing values (median imputation for numeric features, most‑frequent for categorical), preventing spurious correlations from NaNs or encoding artifacts.
-  - Outlier clipping on key numeric features to reduce the influence of extreme synthetic values.
-- **Model design and training**:
-  - Use of **SMOTE** (optional) in `train_xgboost.py` to address class imbalance, reducing bias toward the majority (non‑default) class.
-  - Cross‑validated hyperparameter tuning (StratifiedKFold + RandomizedSearchCV) for XGBoost to avoid overfitting specific subpopulations.
-- **Post‑hoc fairness checks**:
-  - Automated fairness reports via `check_model_fairness`, which monitor differences in predicted and true default rates across age bands and states and raise a bias flag when thresholds are exceeded.
-- **Explainability‑driven review**:
-  - SHAP plots are used to inspect whether sensitive or proxy attributes systematically drive predictions, allowing manual review and potential feature engineering (e.g., dropping or transforming problematic features) in future iterations.
+- Predicted default probability
+- Model test AUC
+- Best hyperparameters
+- Feature list used by model
+- SHAP explanation (local + importance)
+- Fairness report snapshot (if generated)
+- Recent persisted decisions (if MongoDB configured)
 
-### 6. Next Steps
+### 7) Repro Steps
 
-- Persist fairness and performance metrics (including SHAP summaries) to disk or a monitoring system after each training run.
-- Extend fairness checks to additional protected attributes (e.g., gender) where appropriate for the use case and regulations.
-- Implement automated alerts in CI/CD or a monitoring dashboard whenever `overall_bias_detected` is `true` or metric thresholds regress.
+```bash
+python scripts/generate_data.py
+python src/models/xgboost_model.py
+python -m streamlit run src/app.py
+python -m src.evaluation.run_bias_detection
+```
+
+### 8) Conclusion
+
+EquiLend AI now uses a tuned, explainable XGBoost model with fairness checks and black-swan safeguards.  
+The pipeline is reproducible, the model is exported with joblib, and all critical outputs (AUC, SHAP, fairness) are visible in both scripts and dashboard.
 
 
