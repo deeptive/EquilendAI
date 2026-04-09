@@ -1,1 +1,13 @@
+# Environments
+venv/
+env/
+.env
 
+# Python caching
+__pycache__/
+*.pyc
+
+# Data
+data/*.csv
+data/*.json
+!data/.gitkeep
