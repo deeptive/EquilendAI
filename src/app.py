@@ -522,6 +522,241 @@ def page_audit_logs():
     )
 
 
+# ── Page: Fairness Analyzer ───────────────────────────────────────────────────
+
+def page_fairness_analyzer():
+    """Fairness analysis page — detect and report bias in loan approvals"""
+    st.subheader("⚖️ Fairness Analyzer — Bias Detection & Equity Audit")
+    
+    st.markdown("""
+    Evaluate the fairness of lending decisions across demographic groups.
+    Detects potential bias using industry-standard metrics.
+    """)
+    
+    artifacts = _load_artifacts()
+    if not artifacts:
+        st.error("❌ No trained model found. Train a model in **Threshold Optimizer** first.")
+        return
+    
+    model, preprocessor, y_test, y_prob, auc = artifacts
+    
+    st.info(
+        "📊 Using test set predictions for fairness analysis. "
+        f"Model AUC: **{auc:.4f}**"
+    )
+    
+    # ── Protected Attribute Selection ─────────────────────────────────────────
+    st.subheader("Step 1: Select Protected Attribute")
+    
+    protected_attr_choice = st.selectbox(
+        "Which demographic group to analyze?",
+        ["Gender", "Age Group", "Synthetic (Demo)"]
+    )
+    
+    # Generate synthetic protected attributes for demo
+    if protected_attr_choice == "Synthetic (Demo)":
+        np.random.seed(42)
+        protected_attr = pd.Series(
+            np.random.choice(["Group_A", "Group_B"], len(y_test)),
+            index=range(len(y_test))
+        )
+        st.caption("Using randomly generated groups for demonstration")
+    else:
+        st.warning(f"⚠️ {protected_attr_choice} attribute not in test data. Using synthetic demo groups.")
+        np.random.seed(42)
+        protected_attr = pd.Series(
+            np.random.choice(["Group_A", "Group_B"], len(y_test)),
+            index=range(len(y_test))
+        )
+    
+    # ── Threshold Selection ───────────────────────────────────────────────────
+    st.subheader("Step 2: Set Decision Threshold")
+    
+    threshold = st.slider(
+        "Decision Threshold",
+        min_value=0.01,
+        max_value=0.99,
+        value=0.50,
+        step=0.01,
+        help="Predictions >= threshold → Denied (1), < threshold → Approved (0)"
+    )
+    
+    # Convert probabilities to binary predictions
+    y_pred = (y_prob >= threshold).astype(int)
+    
+    # ── Generate Fairness Report ──────────────────────────────────────────────
+    st.subheader("Step 3: Fairness Report")
+    
+    try:
+        from evaluation.fairness import FairnessReportGenerator
+        
+        report_gen = FairnessReportGenerator(
+            y_true=y_test,
+            y_pred=y_pred,
+            protected_attr=protected_attr
+        )
+        report = report_gen.fairness_summary()
+        
+        # Overall Metrics
+        col1, col2, col3, col4 = st.columns(4)
+        metrics = report["overall_metrics"]
+        
+        with col1:
+            st.metric("Accuracy", f"{metrics['accuracy']:.4f}")
+        with col2:
+            st.metric("Precision", f"{metrics['precision']:.4f}")
+        with col3:
+            st.metric("Recall", f"{metrics['recall']:.4f}")
+        with col4:
+            st.metric("Specificity", f"{metrics['specificity']:.4f}")
+        
+        # ── Demographic Parity ────────────────────────────────────────────────
+        st.subheader("📊 Demographic Parity (Selection Rates)")
+        
+        dp = report["demographic_parity"]
+        
+        if "by_group" in dp:
+            dp_data = []
+            for group, metrics_dict in dp["by_group"].items():
+                dp_data.append({
+                    "Group": group,
+                    "Approval Rate": f"{metrics_dict['selection_rate']:.2%}",
+                    "Sample Size": metrics_dict['count']
+                })
+            
+            st.dataframe(pd.DataFrame(dp_data), use_container_width=True)
+            
+            if "disparate_impact_ratio" in dp:
+                di_ratio = dp["disparate_impact_ratio"]
+                passes = "✅ PASS" if dp["passes_80_percent_rule"] else "❌ FAIL"
+                
+                col_di1, col_di2 = st.columns(2)
+                with col_di1:
+                    st.metric(
+                        "Disparate Impact Ratio",
+                        f"{di_ratio:.4f}",
+                        help="Min approval rate ÷ Max approval rate. ≥ 0.80 = Fair"
+                    )
+                with col_di2:
+                    st.metric(
+                        "80% Rule",
+                        passes.split()[-1],
+                        delta="Fair" if dp["passes_80_percent_rule"] else "Unfair"
+                    )
+                
+                if di_ratio < 0.80:
+                    st.warning(
+                        f"⚠️ **Disparate Impact Alert**: Ratio is {di_ratio:.4f} (< 0.80). "
+                        "This suggests potential discrimination."
+                    )
+        
+        # ── Equalized Odds ────────────────────────────────────────────────────
+        st.subheader("📈 Equalized Odds (Error Rates)")
+        
+        eo = report["equalized_odds"]
+        
+        if "by_group" in eo:
+            eo_data = []
+            for group, metrics_dict in eo["by_group"].items():
+                eo_data.append({
+                    "Group": group,
+                    "FPR": f"{metrics_dict['fpr']:.4f}",
+                    "TPR": f"{metrics_dict['tpr']:.4f}"
+                })
+            
+            st.dataframe(pd.DataFrame(eo_data), use_container_width=True)
+            
+            if "max_fpr_diff" in eo:
+                col_eo1, col_eo2 = st.columns(2)
+                with col_eo1:
+                    st.metric("Max FPR Difference", f"{eo['max_fpr_diff']:.4f}")
+                with col_eo2:
+                    st.metric("Max TPR Difference", f"{eo['max_tpr_diff']:.4f}")
+        
+        # ── Equal Opportunity ─────────────────────────────────────────────────
+        st.subheader("🎯 Equal Opportunity (True Positive Rate)")
+        
+        eop = report["equal_opportunity"]
+        
+        if "by_group" in eop:
+            eop_data = []
+            for group, metrics_dict in eop["by_group"].items():
+                eop_data.append({
+                    "Group": group,
+                    "TPR": f"{metrics_dict['tpr']:.4f}",
+                    "True Positives": metrics_dict['true_positives'],
+                    "False Negatives": metrics_dict['false_negatives']
+                })
+            
+            st.dataframe(pd.DataFrame(eop_data), use_container_width=True)
+            
+            if "max_tpr_diff" in eop:
+                st.metric("Max TPR Difference", f"{eop['max_tpr_diff']:.4f}")
+                
+                if eop["max_tpr_diff"] > 0.10:
+                    st.warning(
+                        f"⚠️ **Equal Opportunity Alert**: TPR differs by {eop['max_tpr_diff']:.4f} "
+                        "across groups. Lower rates may indicate bias."
+                    )
+        
+        # ── Predictive Parity ─────────────────────────────────────────────────
+        st.subheader("🔍 Predictive Parity (Precision)")
+        
+        pp = report["predictive_parity"]
+        
+        if "by_group" in pp:
+            pp_data = []
+            for group, metrics_dict in pp["by_group"].items():
+                pp_data.append({
+                    "Group": group,
+                    "PPV (Precision)": f"{metrics_dict['ppv']:.4f}",
+                    "True Positives": metrics_dict['true_positives'],
+                    "False Positives": metrics_dict['false_positives']
+                })
+            
+            st.dataframe(pd.DataFrame(pp_data), use_container_width=True)
+        
+        # ── Recommendations ───────────────────────────────────────────────────
+        st.subheader("💡 Recommendations & Alerts")
+        
+        recommendations = report["recommendations"]
+        
+        for i, rec in enumerate(recommendations, 1):
+            if "✓" in rec:
+                st.success(rec)
+            elif "⚠️" in rec or "Alert" in rec:
+                st.warning(rec)
+            else:
+                st.info(rec)
+        
+        # ── Export Report ─────────────────────────────────────────────────────
+        st.subheader("📥 Export Report")
+        
+        try:
+            from evaluation.fairness import generate_fairness_html_report
+            
+            html_report = generate_fairness_html_report(
+                y_true=y_test,
+                y_pred=y_pred,
+                protected_attr=protected_attr,
+                title="EquiLend AI — Fairness Audit Report"
+            )
+            
+            st.download_button(
+                "⬇️ Download HTML Report",
+                data=html_report,
+                file_name=f"fairness_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.html",
+                mime="text/html"
+            )
+        except Exception as e:
+            st.error(f"Could not generate HTML report: {e}")
+    
+    except ImportError:
+        st.error("❌ Fairness module not found. Please ensure fairness.py is installed.")
+    except Exception as e:
+        st.error(f"❌ Error generating fairness report: {e}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -534,7 +769,7 @@ def main():
     st.title("⚖️ EquiLend AI: Transparent Credit Scoring")
     st.markdown("*Bridging the credit gap with fair, explainable, alternative-data ML.*")
 
-    menu   = ["New Application", "Dashboard", "Threshold Optimizer", "Audit Logs"]
+    menu   = ["New Application", "Dashboard", "Threshold Optimizer", "Fairness Analyzer", "Audit Logs"]
     choice = st.sidebar.selectbox("Navigation", menu)
 
     st.sidebar.markdown("---")
@@ -548,6 +783,8 @@ def main():
         page_dashboard()
     elif choice == "Threshold Optimizer":
         page_threshold_optimizer()
+    elif choice == "Fairness Analyzer":
+        page_fairness_analyzer()
     elif choice == "Audit Logs":
         page_audit_logs()
 
