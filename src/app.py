@@ -538,11 +538,11 @@ def page_fairness_analyzer():
         st.error("❌ No trained model found. Train a model in **Threshold Optimizer** first.")
         return
     
-    model, preprocessor, y_test, y_prob, auc = artifacts
+    model, preprocessor, y_test, y_prob = artifacts
     
     st.info(
         "📊 Using test set predictions for fairness analysis. "
-        f"Model AUC: **{auc:.4f}**"
+        f"Test set size: **{len(y_test)}** samples"
     )
     
     # ── Protected Attribute Selection ─────────────────────────────────────────
