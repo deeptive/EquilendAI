@@ -6,7 +6,7 @@ fake = Faker()
 
 data = []
 
-for _ in range(100):
+for _ in range(1200):
     gender = random.choice(['Male', 'Female'])
     income = random.randint(20000, 100000)
     utility_bill = random.randint(500, 5000)
