@@ -4,27 +4,47 @@ Integrated High-Accuracy Logic (0.878) with Production Pipeline.
 """
 
 import os
+
 import sys
+
 import pickle
+
 import json
 import numpy as np
+
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
+
     accuracy_score,
+
     precision_score,
+
     recall_score,
+
     roc_auc_score,
+
     confusion_matrix,
+
 )
+
 import xgboost as xgb
 from imblearn.over_sampling import SMOTE
 
+from imblearn.over_sampling import SMOTE
+
+
+
 # ── Path resolution ────────────────────────────────────────────────────────────
+
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
 _SRC_DIR  = os.path.dirname(_THIS_DIR)
+
 _ROOT_DIR = os.path.dirname(_SRC_DIR)
+
 if _SRC_DIR not in sys.path:
+
     sys.path.insert(0, _SRC_DIR)
 
 # Import business logic from evaluation module
@@ -123,6 +143,7 @@ def train_and_save(data_path=DEFAULT_DATA_PATH, models_dir=DEFAULT_MODELS_DIR):
         pickle.dump(medians, f)
     
     np.save(os.path.join(models_dir, "y_test.npy"), y_test.values)
+
     np.save(os.path.join(models_dir, "y_prob.npy"), y_prob)
     
     with open(os.path.join(models_dir, "threshold_info.json"), "w") as f:
@@ -134,6 +155,7 @@ def logger_print(msg):
     print(f"INFO: {msg}")
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     print("Running Resolved XGBoost Training Pipeline...")
     model, auc, t_info = train_and_save()
