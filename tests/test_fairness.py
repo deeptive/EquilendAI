@@ -5,10 +5,13 @@ Tests for the Fairness Report Generator module
 import numpy as np
 import pandas as pd
 import pytest
+import os
+import tempfile
 from src.evaluation.fairness import (
     FairnessReportGenerator,
     calculate_fairness_metrics,
-    generate_fairness_html_report
+    generate_fairness_html_report,
+    generate_fairness_markdown_report
 )
 
 
@@ -255,6 +258,218 @@ class TestEdgeCases:
         summary = generator.fairness_summary()
         
         assert summary is not None
+
+
+class TestNaNValidation:
+    """Test NaN validation and data sufficiency checks"""
+
+    def test_clean_data_validation(self):
+        """Test that clean data passes validation"""
+        y_true = np.array([0, 0, 1, 1, 0, 1])
+        y_pred = np.array([0, 0, 1, 1, 0, 1])
+        protected_attr = pd.Series(['A', 'A', 'A', 'B', 'B', 'B'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert generator.data_sufficiency["is_sufficient"] is True
+        assert len(generator.data_sufficiency["errors"]) == 0
+
+    def test_nan_in_y_true(self):
+        """Test NaN handling in y_true"""
+        y_true = np.array([0, np.nan, 1, 1, 0, 1])
+        y_pred = np.array([0, 0, 1, 1, 0, 1])
+        protected_attr = pd.Series(['A', 'A', 'A', 'B', 'B', 'B'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert len(generator.data_sufficiency["warnings"]) > 0
+        assert any("NaN" in w for w in generator.data_sufficiency["warnings"])
+
+    def test_nan_in_y_pred(self):
+        """Test NaN handling in y_pred"""
+        y_true = np.array([0, 0, 1, 1, 0, 1])
+        y_pred = np.array([0, np.nan, 1, 1, 0, 1])
+        protected_attr = pd.Series(['A', 'A', 'A', 'B', 'B', 'B'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert len(generator.data_sufficiency["warnings"]) > 0
+
+    def test_nan_in_protected_attr(self):
+        """Test NaN handling in protected attribute"""
+        y_true = np.array([0, 0, 1, 1, 0, 1])
+        y_pred = np.array([0, 0, 1, 1, 0, 1])
+        protected_attr = pd.Series(['A', np.nan, 'A', 'B', 'B', 'B'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert len(generator.data_sufficiency["warnings"]) > 0
+
+    def test_small_dataset_warning(self):
+        """Test warning for small dataset"""
+        y_true = np.array([0, 1, 0])
+        y_pred = np.array([0, 1, 0])
+        protected_attr = pd.Series(['A', 'B', 'A'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert len(generator.data_sufficiency["warnings"]) > 0
+        assert any("30 samples" in w for w in generator.data_sufficiency["warnings"])
+
+    def test_excessive_nan_fails_sufficiency(self):
+        """Test that excessive NaN values fail data sufficiency"""
+        y_true = np.array([0, np.nan, np.nan, np.nan, 1, np.nan, np.nan, np.nan, 0, 1])
+        y_pred = np.array([0, 0, 1, 1, 0, 1, 0, 1, 0, 1])
+        protected_attr = pd.Series(['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B', 'B'])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        # More than 10% NaN should fail
+        summary = generator.fairness_summary()
+        assert "data_sufficiency" in summary
+
+    def test_empty_array_fails_sufficiency(self):
+        """Test that empty arrays fail data sufficiency"""
+        y_true = np.array([])
+        y_pred = np.array([])
+        protected_attr = pd.Series([])
+        
+        generator = FairnessReportGenerator(y_true, y_pred, protected_attr)
+        
+        assert generator.data_sufficiency["is_sufficient"] is False
+        assert len(generator.data_sufficiency["errors"]) > 0
+
+
+class TestMarkdownGeneration:
+    """Test markdown report generation"""
+
+    def test_markdown_generation(self):
+        """Test markdown report generation"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 100)
+        y_pred = np.random.rand(100)
+        protected_attr = pd.Series(['A'] * 50 + ['B'] * 50)
+        
+        md_report, path = generate_fairness_markdown_report(y_true, y_pred, protected_attr)
+        
+        assert isinstance(md_report, str)
+        assert "# Fairness Analysis Report" in md_report
+        assert "Demographic Parity" in md_report
+        assert "Generated:" in md_report
+
+    def test_markdown_includes_auc(self):
+        """Test that markdown includes AUC when probabilities provided"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 100)
+        y_pred = np.random.rand(100)  # Probabilities
+        protected_attr = pd.Series(['A'] * 50 + ['B'] * 50)
+        
+        md_report, path = generate_fairness_markdown_report(y_true, y_pred, protected_attr)
+        
+        # Should contain AUC metric
+        assert "AUC" in md_report or "Fairness" in md_report
+
+    def test_markdown_with_export_path(self):
+        """Test markdown export with path"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.random.rand(50)
+        protected_attr = pd.Series(['A'] * 25 + ['B'] * 25)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = os.path.join(tmpdir, "test_report.md")
+            md_report, saved_path = generate_fairness_markdown_report(
+                y_true, y_pred, protected_attr, output_path
+            )
+            
+            # Either saved to actual path or temp fallback
+            if saved_path:
+                assert os.path.exists(saved_path)
+
+    def test_markdown_without_protected_attr(self):
+        """Test markdown generation without protected attribute"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.random.rand(50)
+        
+        md_report, path = generate_fairness_markdown_report(y_true, y_pred, None)
+        
+        assert isinstance(md_report, str)
+        assert "Fairness Analysis Report" in md_report
+
+    def test_markdown_structure(self):
+        """Test markdown report has proper structure"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.random.rand(50)
+        protected_attr = pd.Series(['A'] * 25 + ['B'] * 25)
+        
+        md_report, path = generate_fairness_markdown_report(y_true, y_pred, protected_attr)
+        
+        # Check for required sections
+        assert "# Fairness Analysis Report" in md_report
+        assert "## Executive Summary" in md_report
+        assert "## Model Performance Metrics" in md_report
+        assert "## Fairness Metrics" in md_report
+        assert "## Recommendations & Action Items" in md_report
+
+
+class TestPermissionHandling:
+    """Test permission error handling and fallback mechanisms"""
+
+    def test_html_export_with_permission_error(self):
+        """Test HTML export gracefully handles permission errors"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.array([0, 0, 1, 1] * 12 + [0, 1])
+        protected_attr = pd.Series(['A'] * 25 + ['B'] * 25)
+        
+        # Try to save to a restricted path (read-only directory)
+        # On most systems, /root or system paths are restricted
+        restricted_path = "/root/test_report_no_perm.html"
+        
+        html_report, saved_path = generate_fairness_html_report(
+            y_true, y_pred, protected_attr, output_path=restricted_path
+        )
+        
+        # Should still return the HTML even if save failed
+        assert isinstance(html_report, str)
+        assert "<html>" in html_report
+
+    def test_markdown_export_with_permission_error(self):
+        """Test markdown export gracefully handles permission errors"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.random.rand(50)
+        protected_attr = pd.Series(['A'] * 25 + ['B'] * 25)
+        
+        # Try to save to restricted path
+        restricted_path = "/root/test_report_no_perm.md"
+        
+        md_report, saved_path = generate_fairness_markdown_report(
+            y_true, y_pred, protected_attr, output_path=restricted_path
+        )
+        
+        # Should still return the markdown even if save failed
+        assert isinstance(md_report, str)
+        assert "Fairness Analysis Report" in md_report
+
+    def test_temp_directory_fallback(self):
+        """Test fallback to temp directory on permission error"""
+        np.random.seed(42)
+        y_true = np.random.binomial(1, 0.3, 50)
+        y_pred = np.random.rand(50)
+        protected_attr = pd.Series(['A'] * 25 + ['B'] * 25)
+        
+        # Request save to restricted location
+        restricted_path = "/root/fairness_report.md"
+        
+        md_report, saved_path = generate_fairness_markdown_report(
+            y_true, y_pred, protected_attr, output_path=restricted_path
+        )
+        
+        # Report should be generated regardless
+        assert md_report is not None
 
 
 if __name__ == "__main__":

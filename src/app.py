@@ -597,6 +597,19 @@ def page_fairness_analyzer():
         )
         report = report_gen.fairness_summary()
         
+        # ── Data Sufficiency Check ────────────────────────────────────────────
+        data_suff = report.get("data_sufficiency", {})
+        
+        if not data_suff.get("is_sufficient", True):
+            st.error("❌ **Data Insufficient**: Analysis cannot proceed with missing data.")
+            for error in data_suff.get("errors", []):
+                st.error(f"  • {error}")
+            return
+        
+        if data_suff.get("warnings"):
+            for warning in data_suff.get("warnings", []):
+                st.warning(f"⚠️ {warning}")
+        
         # Overall Metrics
         col1, col2, col3, col4 = st.columns(4)
         metrics = report["overall_metrics"]
@@ -730,26 +743,63 @@ def page_fairness_analyzer():
                 st.info(rec)
         
         # ── Export Report ─────────────────────────────────────────────────────
-        st.subheader("📥 Export Report")
+        st.subheader("📥 Export Reports")
         
         try:
-            from evaluation.fairness import generate_fairness_html_report
+            from evaluation.fairness import generate_fairness_html_report, generate_fairness_markdown_report
             
-            html_report = generate_fairness_html_report(
+            timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+            
+            # HTML Report
+            html_report, html_path = generate_fairness_html_report(
                 y_true=y_test,
                 y_pred=y_pred,
                 protected_attr=protected_attr,
                 title="EquiLend AI — Fairness Audit Report"
             )
             
-            st.download_button(
-                "⬇️ Download HTML Report",
-                data=html_report,
-                file_name=f"fairness_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.html",
-                mime="text/html"
-            )
+            col_html, col_md = st.columns(2)
+            
+            with col_html:
+                st.download_button(
+                    "📊 Download HTML Report",
+                    data=html_report,
+                    file_name=f"fairness_report_{timestamp}.html",
+                    mime="text/html"
+                )
+                if html_path:
+                    st.caption(f"✅ Also saved to: {html_path}")
+                else:
+                    st.caption("ℹ️ Could not save to disk (permission denied)")
+            
+            # Markdown Report
+            with col_md:
+                try:
+                    md_report, md_path = generate_fairness_markdown_report(
+                        y_true=y_test,
+                        y_pred=y_prob,  # Use probabilities for AUC calculation
+                        protected_attr=protected_attr
+                    )
+                    
+                    st.download_button(
+                        "📝 Download Markdown Report",
+                        data=md_report,
+                        file_name=f"fairness_report_{timestamp}.md",
+                        mime="text/markdown"
+                    )
+                    if md_path:
+                        st.caption(f"✅ Also saved to: {md_path}")
+                    else:
+                        st.caption("ℹ️ Could not save to disk (permission denied)")
+                except Exception as md_error:
+                    st.error(f"Could not generate markdown: {md_error}")
+        
+        except ImportError:
+            st.error("❌ Fairness export functions not found.")
+        except PermissionError as perm_err:
+            st.warning(f"⚠️ Permission denied writing to disk: {perm_err}. Reports available for download only.")
         except Exception as e:
-            st.error(f"Could not generate HTML report: {e}")
+            st.error(f"❌ Error generating reports: {e}")
     
     except ImportError:
         st.error("❌ Fairness module not found. Please ensure fairness.py is installed.")
