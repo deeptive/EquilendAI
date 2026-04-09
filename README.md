@@ -1,89 +1,139 @@
-#  EquiLend AI: Open Source ML Challenge 2026
+# ⚖️ EquiLend AI — Open Source ML Challenge 2026
 
-##  The Problem
-Traditional credit scoring relies heavily on historical banking data, excluding millions of "credit invisible" individuals. **EquiLend AI** aims to bridge this gap by using alternative data—such as utility payments, cash flow consistency, and digital footprints—to assess risk fairly and transparently.
+> **Bridging the credit gap with fair, explainable, alternative-data machine learning.**
 
-##  The Challenge
-As a participant, you are provided with a **Streamlit UI Prototype**. However, the "brain" of the application is currently a simple mathematical placeholder with several **critical logical flaws**. 
+---
 
-### Your Mission:
-1.  **Fix the Logic:** Identify and resolve the 4 logical errors in the `app.py` starter code.
-2.  **Build the ML Pipeline:** Transition from a basic formula to a robust **XGBoost/LightGBM** model.
-3.  **Ensure Fairness:** Implement bias detection (Disparate Impact Ratio) to ensure the model doesn't discriminate.
-4.  **Persistence:** Connect the dashboard to **MongoDB Atlas** to ensure every loan decision is audited and saved.
+## 🌍 The Problem
+
+Traditional credit scoring excludes millions of "credit invisible" individuals by relying solely on historical banking data. **EquiLend AI** addresses this by leveraging **alternative data** — utility payments, cash flow consistency, and digital footprints — to assess creditworthiness fairly and transparently.
+
+---
+
+## 🚀 The Challenge
+
+A Streamlit UI prototype is provided as your starting point. The core "brain" is currently a **mathematical placeholder with 4 critical logical flaws**, and the data pipeline does not yet exist.
+
+### Your Mission
+
+1. **Fix the Core Logic** — Resolve the 4 logical bugs in `src/app.py`
+2. **Build the ML Pipeline** — Replace the formula with a robust, fair, optimized ML engine
+3. **Complete All 15 Tasks** — Cover data ingestion, preprocessing, modeling, and evaluation
+
+---
+
+## 🐛 Task 00 — Hidden Logical Bugs (Fix First)
+
+Before building the ML pipeline, resolve these 4 bugs in `src/app.py`:
+
+| # | Bug | Description |
+|---|-----|-------------|
+| 1 | **Division by Zero** | Score crashes when `utility_bill` is entered as `0` |
+| 2 | **Age Guard Bypass** | System allows scoring for users under 18 |
+| 3 | **Linear Scaling Flaw** | Simple ratio formula must be replaced with a trained ML model |
+| 4 | **State Persistence** | Decisions disappear on refresh — must be saved to MongoDB |
 
 ---
 
 ## 🛠 Tech Stack
-* **Language:** Python 3.10+
-* **Frontend:** Streamlit
-* **ML Libraries:** Scikit-learn, XGBoost, SHAP (for explainability)
-* **Database:** MongoDB Atlas (NoSQL)
-* **Validation:** Pydantic
+
+| Layer | Tools |
+|-------|-------|
+| Language | Python 3.10+ |
+| Frontend | Streamlit |
+| ML Libraries | Scikit-learn, XGBoost, LightGBM, Imbalanced-learn (SMOTE), SHAP |
+| Database | MongoDB Atlas (NoSQL) |
+| Testing & Data | Pytest, Faker, Pandas |
 
 ---
 
-##  Repository Structure
-* `app.py`: The main Streamlit dashboard (Contains intentional bugs).
-* `model_utils.py`: Placeholder for your training and inference logic.
-* `requirements.txt`: Necessary Python dependencies.
-* `.env.example`: Template for your MongoDB connection string.
-* `data/`: Folder for datasets (e.g., `sample_loans.csv`).
+## 📂 Repository Structure
+
+```text
+EquiLend-AI/
+├── scripts/
+│   └── generate_data.py          # RUN FIRST — generates synthetic dataset
+├── src/
+│   ├── app.py                    # Streamlit Dashboard UI
+│   ├── data_ingestion/           # Task 01: MongoDB connection
+│   ├── preprocessing/            # Tasks 02, 03, 04, 07: Cleaning & Encoding
+│   ├── models/                   # Tasks 05, 06, 10, 11: Training logic
+│   └── evaluation/               # Tasks 08, 09, 13: SHAP & Fairness logic
+├── tests/                        # Task 12: Unit Tests
+├── .env.example                  # MongoDB URI template
+├── requirements.txt              # Python dependencies
+├── Fairness_Report.md            # Task 15: Final fairness metrics
+└── README.md
+```
 
 ---
 
-## Getting Started
+## ⚡ Getting Started
 
-### 1. Prerequisites
-Ensure you have Python 3.10 or higher installed. We recommend using a virtual environment:
+### 1. Prerequisites & Virtual Environment
+
+Ensure Python 3.10+ is installed, then set up your environment:
+
 ```bash
+# Create virtual environment
 python -m venv venv
-# On Windows:
+
+# Activate — Windows
 .\venv\Scripts\activate
-# On Mac/Linux:
+
+# Activate — Mac/Linux
 source venv/bin/activate
+```
 
 ### 2. Install Dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Setup Environment
-Copy the example environment file and add your **MongoDB Atlas URI**:
+### 3. Generate the Mock Dataset
+
+Run this **before** building any models. It creates a synthetic dataset with intentional missing values and class imbalances:
+
+```bash
+python scripts/generate_data.py
+```
+
+This generates `data/equilend_mock_data.csv`. The `data/` folder is git-ignored for security.
+
+### 4. Setup Environment Variables
+
 ```bash
 cp .env.example .env
 ```
 
-### 4. Run the Dashboard
-If the `streamlit` command is not in your PATH, use the python module execution:
+Open `.env` and add your **MongoDB Atlas URI**.
+
+### 5. Run the Dashboard
+
 ```bash
-python -m streamlit run app.py
+python -m streamlit run src/app.py
 ```
 
 ---
 
-##  The "Answer Key": Hidden Logical Bugs
-To qualify for a top-tier score, your submission **must** address these 4 hidden errors found in the starter kit:
+## 🏆 Evaluation Rubric
 
-* **Division by Zero:** The current score logic fails if a `utility_bill` is entered as 0.
-* **Age Guard Bypass:** The system currently allows scoring for minors (Age < 18).
-* **Linear Scaling Flaw:** The current formula is a simple ratio. Real-world risk is non-linear and requires a trained ML model.
-* **State Persistence:** Currently, clicking "Analyze" displays a result that disappears on refresh. You must implement a database save to MongoDB.
-
----
-
-##  Evaluation Rubrics
-| **Model Quality** | Optimized XGBoost with AUC > 0.85. | Basic Random Forest. | Hard-coded logic. |
-| **Explainability** | Interactive SHAP plots for every loan. | Static feature importance. | No explainability. |
-| **Fairness** | Bias detection script & metrics included. | Mention of fairness in README. | No bias checking. |
-| **Security** | Pydantic validation & `.env` usage. | Basic `try-except` blocks. | Hard-coded credentials. |
+| Criteria | 🥇 Gold | 🥈 Silver | 🥉 Bronze |
+|----------|---------|-----------|-----------|
+| **Model Quality** | Optimized XGBoost/LightGBM with AUC > 0.85 | Basic Random Forest | Hard-coded logic |
+| **Explainability** | Interactive SHAP plots in Streamlit | Static feature importance in console | None |
+| **Fairness** | Bias detection script + `Fairness_Report.md` | Fairness mentioned in README only | No bias checking |
+| **Security/Eng** | Pytest validation + secure `.env` MongoDB | Basic try-except blocks | Hard-coded credentials |
 
 ---
 
-## Submission Guidelines
-1. Fork this repository.
-2. Complete the **Set 1 (ML Engine)** and **Set 2 (Dashboard)** tasks.
-3. Include a `Fairness_Report.md` summarizing your model's performance.
-```
+## 📤 Submission Guidelines
+
+1. **Fork** this repository
+2. **Complete** all 15 tasks in the designated `src/` subfolders
+3. **Populate** `Fairness_Report.md` with your model's final metrics
+4. **Submit a Pull Request** with a summary of your XGBoost architecture and fairness outcomes
 
 ---
+
